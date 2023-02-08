@@ -22,6 +22,12 @@
 - 支持一键将恢复备份结果或dead旧主加回集群
 
 ## 部署
+> 需要将更改好配置信息后的分别传到所有需部署的服务器端
+```
+scp -P22 -r xxx/Deploy_MySQL/  root@test101:/xxx/
+scp -P22 -r xxx/Deploy_MySQL/  root@test102:/xxx/
+```
+
 ```shell
 [root@test151 installMysql]# ./deploy_mysql.sh 
 Usage: bash 
@@ -108,7 +114,7 @@ deploy_mysql.sh single
 # 单独部署主节点
 deploy_mysql.sh master
 
-# 单独部署从节点（暂不作为从库加入集群）
+# 单独部署从节点（暂不作为从库加入集群），需要更改配置文件中的IPADDR为本机地址
 deploy_mysql.sh slave
 ```
 ### 高可用部署
