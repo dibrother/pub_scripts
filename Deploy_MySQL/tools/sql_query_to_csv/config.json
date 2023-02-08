@@ -1,0 +1,8 @@
+{
+    "MysqlHost": "127.0.0.1",
+    "MysqlPort": "3312",
+    "MysqlUser": "root",
+    "MysqlName": "test1",
+    "MysqlPassWord": "123456",
+    "Query":"select a.*,b.`id`,date_format('2022-01-01','%Y-%m-%d') sj  from a  inner join b on a.id = b.id"
+}

@@ -1,0 +1,39 @@
+old_master=$1
+new_master=$2
+msg_type=$3
+local_host_ip='192.168.66.166'
+msg_title="钉钉消息通知"
+dingding_url=
+happen_time=`date "+%Y-%m-%d %H:%M:%S"`
+
+# 钉钉信息发送
+dingding_note(){
+  if [[ $2 == "通知" ]]; then
+    local color="#006600"
+  else
+    local color="#FF0033"
+  fi
+  local msg="## **$1[<font color=${color}>$2</font>]**\n&nbsp; \n\n[<font color=${color}>发生切换告警</font>] \n---\n#### **$2切换告警内容**:$3\n\n&nbsp;  \n\n---\n#### **$2时间:**\n* `date "+%Y-%m-%d %H:%M:%S"`"
+  local INFO="curl -H \"Content-Type: application/json\"  -X POST -d '{\"msgtype\": \"markdown\",\"markdown\": {\"title\": \"${msg_title}$2\",\"text\": \"${msg}\"},\"at\":{\"atMobiles\": \"[+86-123456123456]\",\"isAtAll\": false}}' "${dingding_url}""
+  eval ${INFO}
+  echo "钉钉通知已发送."
+  if [[ $2 == "Error" ]]; then
+    exit 1
+  fi
+}
+if [ ! $msg_type ];then
+  msg_type='异常'
+fi
+
+check_switch_status(){
+  SWITCH_STATUS=`tail -3 /tmp/orch.log |grep 'is moved to'|wc -l`
+  if [ $SWITCH_STATUS -eq 1 ];then
+    SWITCH_STATUS_MSG='VIP切换成功'
+  else
+    SWITCH_STATUS_MSG='VIP切换失败,请检查!'
+  fi
+}
+SWITCH_MSG=`tail -1 /tmp/recovery.log`
+check_switch_status
+dingding_note $msg_title "$msg_type" "\n*   **发生高可用切换** \n* 原主IP：${old_master}\n* 新主IP：${new_master}\n* vip切换状态:${SWITCH_STATUS_MSG} \n* 执行切换操作服务器
+IP: ${local_host_ip}\n* 切换信息:${SWITCH_MSG} \n* 发生时间: ${happen_time}"

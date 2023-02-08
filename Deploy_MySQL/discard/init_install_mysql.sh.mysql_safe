@@ -1,0 +1,360 @@
+#!/bin/bash
+#set -e
+
+MYSQL_DIR=$1
+MYSQL_PKG=$2
+MYSQL_PORT=$3
+MEMORY_ALLLOW_GB=$4
+INIT_PASSWORD=$5
+MYCNF_DEFAULT=$6
+IPADDR=$7
+
+BASE_DIR='/usr/local'
+DATA_DIR=$MYSQL_DIR/mysql$MYSQL_PORT/data
+SOCKET_DIR=$DATA_DIR/mysql.sock
+MYSQLX_SOCKET_DIR=$DATA_DIR/mysqlx.sock
+MYSQL_LINK_DIR=$BASE_DIR/mysql
+MYSQL_UNCOMPRESS=`echo ${MYSQL_PKG##*/}|awk -F ".tar" '{print $1}'`
+MYCNF_DIR=$MYSQL_DIR/mysql$MYSQL_PORT/my$MYSQL_PORT.cnf
+MYSQLX_PORT=${MYSQL_PORT}0
+
+## 打印
+print_message(){
+  TAG=$1
+  MSG=$2
+  echo "`date +'%F %T'` [$TAG] $MSG"
+}
+
+# 检查传入参数
+check_params(){
+  if [ ! $MYSQL_DIR ] || [ ! $MYSQL_PKG ] || [ ! $MYSQL_PORT ] || [ ! $MEMORY_ALLLOW_GB ] || [ ! $INIT_PASSWORD ] || [ ! $MYCNF_DEFAULT ] || [ ! $IPADDR ];then
+    print_message "[Error]" "init_mysql_install 指令参数不全，请检查"
+    return 1
+  fi
+}
+
+# 卸载系统自带 mariadb
+uninstall_mariadb(){
+  print_message "Note" "检测是否安装 mariadb..."
+  IS_MARIADB=`rpm -qa|grep mariadb-libs|wc -l`
+  if [ $IS_MARIADB -gt 0 ];then
+    MARIADB=`rpm -qa|grep mariadb-libs`
+    rpm -e --nodeps $MARIADB
+    print_message "Warning" "卸载默认安装的mariadb"
+  else
+    print_message "Note" "mariadb 未安装或已被卸载"
+  fi
+}
+
+# 安装前环境准备
+check_install_env(){
+  ## 检查安装所需文件是否存在
+  [ ! -f ./soft/$MYSQL_PKG ] && print_message "Error" "MySQL安装包不存在,当前传入路径为：$MYSQL_PKG" && return 1 || print_message "Note" "检测MySQL安装包存在，路径为：$MYSQL_PKG"
+  [ ! -f $MYCNF_DEFAULT ] && print_message "Error" "my.cnf默认配置文件不存在,当前传入路径为：$MYCNF_DEFAULT" && return 2 || print_message "Note" "my.cnf默认配置文件存在，路径为：$MYCNF_DEFAULT"
+
+  ## 检查libaio依赖
+  print_message "Note" "检测环境依赖包[libaio]..."
+  IS_LIBAIO=`rpm -qa|grep libaio|grep x86_64|wc -l`
+  [ $IS_LIBAIO -eq 0 ] && print_message "Error" "依赖包 libaio 不存在" && return 3 || print_message "Note" "环境依赖包[libaio]已安装"
+
+  ## 检查端口占用
+  print_message "Note" "检测端口${MYSQL_PORT}是否被占用..."
+  IS_PORT=`ss -ntpl | grep -w $MYSQL_PORT|wc -l`
+  [ $IS_PORT -gt 0 ] && print_message "Error" "端口${MYSQL_PORT}已被占用" && return 4 || print_message "Note" "端口${MYSQL_PORT}可用"
+
+  IS_MYSQLX_PORT=`ss -ntpl | grep -w $MYSQLX_PORT|wc -l`
+  [ $IS_MYSQLX_PORT -gt 0 ] && print_message "Error" "端口${MYSQLX_PORT}已被占用" && return 5 || print_message "Note" "端口${MYSQLX_PORT}可用"
+
+  ## 检查并创建用户组和用户
+  print_message "Note" "检测mysql用户与组..."
+  IS_MYSQL_GROUP=`grep -w "mysql" /etc/group|wc -l`
+  [ $IS_MYSQL_GROUP -eq 0 ] && groupadd mysql && print_message "Note" "mysql用户组创建成功" || print_message "Warning" "mysql用户组已存在"
+
+  IS_MYSQL_USER=`grep -w "mysql" /etc/passwd|wc -l`
+  [ $IS_MYSQL_USER -eq 0 ] && useradd  -g mysql -s /bin/nologin mysql && print_message "Note" "mysql用户创建成功" || print_message "Warning" "mysql用户已存在"
+
+  ## 检查并创建数据路径
+  print_message "Note" "检查数据目录..."
+  if [ -d $DATA_DIR ];then
+    if [ "$(ls -A $DATA_DIR)" ];then
+      print_message "Error" "目录$DATA_DIR 已存在且不为空"
+      return 5
+    else
+      print_message "Warning" "目录$DATA_DIR 已存在"
+    fi
+  else
+    mkdir -p $DATA_DIR
+    print_message "Note" "创建数据目录：$DATA_DIR"
+  fi
+}
+
+
+## 初始化MySQL用户，修改初始密码，若类型指定为master，则会创建一个bd_repl用户
+change_init_password(){
+  ## 验证是否正常启动
+  MYSQL_STATUS=`ps -ef|grep $DATA_DIR|grep -v grep|wc -l`
+  if [ $MYSQL_STATUS -gt 0 ];then
+    ## 初始化密码
+    TEMP_PASWORD=`cat $DATA_DIR/error.log |grep 'A temporary password'|awk -F " " '{print $(NF)}'`
+    print_message "Note" "修改MySQL初始化密码"
+    $MYSQL_LINK_DIR/bin/mysqladmin -uroot -p"$TEMP_PASWORD" -P$MYSQL_PORT -S $SOCKET_DIR password "$INIT_PASSWORD"
+    print_message "Note" "修改初始密码成功"
+  else
+    print_message "Error" "启动异常，请查看错误日志！错误日志路径：$DATA_DIR/error.log"
+    return 6
+  fi
+}
+
+# 创建用户
+create_user(){
+  CREATE_USER=$1
+  CREATE_PASSWORD=$2
+  CREATE_IP_SEGMENT=$3
+  CREATE_USER_PRIVS=$4
+  ./create_user.sh  $MYSQL_LINK_DIR/bin/mysql root "$INIT_PASSWORD" $MYSQL_PORT $SOCKET_DIR $CREATE_USER "$CREATE_PASSWORD" "$CREATE_IP_SEGMENT" $CREATE_USER_PRIVS
+}
+
+# 安装
+install_mysql(){
+
+  # 卸载 mariadb
+  uninstall_mariadb
+
+  # 授权目录
+  print_message "Note" "对目录进行授权"
+  chown -R mysql.mysql $DATA_DIR
+
+  # 解压
+  if [ -d $BASE_DIR/$MYSQL_UNCOMPRESS ];then
+    print_message "Warning" "$MYSQL_UNCOMPRESS 文件已存在"
+  else
+    print_message "Note" "开始解压缩，可能需要花费几分钟，请耐心等待"
+    mkdir -p $BASE_DIR/$MYSQL_UNCOMPRESS
+    tar xf ./soft/$MYSQL_PKG -C $BASE_DIR/$MYSQL_UNCOMPRESS --strip-components 1
+  fi
+
+  ## 创建软链
+  print_message "Note" "检查配置软链..."
+  if [ -L $MYSQL_LINK_DIR ];then
+    is_link=`ls -l $MYSQL_LINK_DIR|grep -w $MYSQL_UNCOMPRESS|wc -l`
+    if [[ $is_link -eq 0 ]];then
+      print_message "Warning" "软链已存在,原软链为 : `ls -l $MYSQL_LINK_DIR`"
+      unlink $MYSQL_LINK_DIR
+      ln -s $BASE_DIR/$MYSQL_UNCOMPRESS $MYSQL_LINK_DIR
+      print_message "Warning" "当前软链替换为 : `ls -l $MYSQL_LINK_DIR`"
+    else
+      print_message "Warning" "软链已存在"
+    fi
+  else
+    ln -s $BASE_DIR/$MYSQL_UNCOMPRESS $MYSQL_LINK_DIR
+    print_message "Note" "设置软链: `ls -l $MYSQL_LINK_DIR`"
+  fi
+
+  ## 设置环境变量,/etc/profile.d/mysql_set_env.sh ,脚本名称固定
+  if [ ! -f /etc/profile.d/mysql_set_env.sh ];then
+    echo "export PATH=$PATH:$MYSQL_LINK_DIR/bin" > /etc/profile.d/mysql_set_env.sh
+    source /etc/profile.d/mysql_set_env.sh
+    print_message "Note" "设置环境变量成功"
+  else
+    print_message "Warning" "环境变量已被设置"
+  fi
+  
+  ## 配置my.cnf
+  print_message "Note" "配置my.cnf"
+  if [ -e $MYCNF_DIR ];then
+  mv $MYCNF_DIR $MYCNF_DIR.`date +%Y%m%d%H%M%S`
+    print_message "Warning" "my.cnf 配置文件已存在，源配置文件被重命名为 $MYCNF_DIR.`date +%Y%m%d%H%M%S`"
+  fi
+  
+  ## 从默认配置复制参数文件my.cnf
+  cp $MYCNF_DEFAULT $MYCNF_DIR
+  # 替换路径
+  sed -i 's#^datadir.*$#datadir = '$DATA_DIR'#' $MYCNF_DIR
+  sed -i 's#^tmpdir.*$#tmpdir = '$DATA_DIR'#' $MYCNF_DIR
+  sed -i 's#^socket.*$#socket = '$SOCKET_DIR'#' $MYCNF_DIR
+  sed -i 's#^mysqlx_socket.*$#mysqlx_socket = '$MYSQLX_SOCKET_DIR'#' $MYCNF_DIR
+  # 替换端口
+  sed -i 's#^port.*$#port = '$MYSQL_PORT'#' $MYCNF_DIR
+  sed -i 's#^mysqlx_port.*$#mysqlx_port = '$MYSQLX_PORT'#' $MYCNF_DIR  
+
+  # 替换server_id
+  SERVER_ID=`echo "$IPADDR"|awk -F "." '{print $3$4}'`
+  sed -i 's#^server_id.*$#server_id = '$SERVER_ID'#' $MYCNF_DIR
+  # 设置 innodb_buffer_pool
+  #INNODB_BUFFER_POOL_SIZE=`expr $MEMORY_ALLLOW_GB \* 1024 \* 65 / 100 / 128 / 8`
+  
+  if [ $MEMORY_ALLLOW_GB -le 1 ];then
+    sed -i 's/^innodb_buffer_pool_size.*$/#innodb_buffer_pool_size = 4G/' $MYCNF_DIR  #小于1G的就直接使用默认值
+  else
+    INNODB_BUFFER_POOL_SIZE=`expr $MEMORY_ALLLOW_GB \* 1024 \* 60 / 100 / 128 / 8`
+    sed -i 's/^innodb_buffer_pool_size.*$/innodb_buffer_pool_size = '$INNODB_BUFFER_POOL_SIZE'G/' $MYCNF_DIR
+  fi
+  
+  # 根据内存大小调整相关的参数
+  if [ $MEMORY_ALLLOW_GB -lt 4 ];then
+    sed -i 's/^read_buffer_size/#&/' $MYCNF_DIR
+    sed -i 's/^read_rnd_buffer_size/#&/' $MYCNF_DIR
+    sed -i 's/^sort_buffer_size/#&/' $MYCNF_DIR
+    sed -i 's/^join_buffer_size/#&/' $MYCNF_DIR
+    sed -i 's/^bulk_insert_buffer_size/#&/' $MYCNF_DIR
+    sed -i 's/^tmp_table_size/#&/' $MYCNF_DIR
+    sed -i 's/^max_heap_table_size/#&/' $MYCNF_DIR
+    sed -i 's/^binlog_cache_size.*$/binlog_cache_size = 2M/' $MYCNF_DIR
+  elif [ $MEMORY_ALLLOW_GB -ge 4 ] && [ $MEMORY_ALLLOW_GB -lt 16 ];then
+    sed -i 's/^read_buffer_size.*$/read_buffer_size = 2M/' $MYCNF_DIR
+    sed -i 's/^read_rnd_buffer_size.*$/read_rnd_buffer_size = 2M/' $MYCNF_DIR
+    sed -i 's/^sort_buffer_size.*$/sort_buffer_size = 2M/' $MYCNF_DIR
+    sed -i 's/^join_buffer_size.*$/join_buffer_size = 2M/' $MYCNF_DIR
+    sed -i 's/^bulk_insert_buffer_size.*$/bulk_insert_buffer_size = 16M/' $MYCNF_DIR
+  fi
+
+
+  ## 初始化
+  cd $MYSQL_LINK_DIR
+  print_message "Note" "初始化MySQL..."
+  bin/mysqld --defaults-file=$MYCNF_DIR --initialize  --user=mysql
+
+  ## 设置service 启动
+  #cd $MYSQL_LINK_DIR
+  #cp support-files/mysql.server /etc/init.d/mysqld
+  
+  ## 启动
+  print_message "Note" "启动MySQL..."
+  $MYSQL_LINK_DIR/bin/mysqld_safe --defaults-file=$MYCNF_DIR --user=mysql > /dev/null &
+  #service mysqld start
+  sleep 5
+  MYSQL_STATUS=`ps -ef|grep $DATA_DIR|grep -v grep|wc -l`
+  if [ $MYSQL_STATUS -gt 0 ];then
+    LOOP_NUM=0
+    while [[ 0 -eq 0 ]]; do
+      ## 判断是否已启动完成
+      IS_READY=`cat $DATA_DIR/error.log |grep $SOCKET_DIR|grep -w 'ready for connections'|wc -l` &> /dev/null
+      if [ $IS_READY -eq 0 ]; then
+        sleep 5
+      else
+        print_message "Note" "安装完成，MySQL已启动..."
+        break
+      fi
+      LOOP_NUM=$(( $LOOP_NUM + 1 ))
+      if [[ $LOOP_NUM -eq 5 ]];then
+        print_message "Error" "启动判断异常，错误日志路径：$DATA_DIR/error.log，错误信息如下："
+        tail -100 $DATA_DIR/error.log
+        return 7
+      fi
+    done
+  else
+    print_message "Error" "启动判断异常，错误日志路径：$DATA_DIR/error.log，错误信息如下："
+    tail -100 $DATA_DIR/error.log
+    return 8
+  fi
+}
+
+
+# 启动停止脚本
+start_stop_script(){
+
+cat > $MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh << EOF
+    #!/bin/sh
+    ## 用于启动停止对应端口的MySQL
+
+    function_start_mysql()
+    {
+      printf "Starting MySQL [${MYSQL_PORT}]...\n"
+      $MYSQL_LINK_DIR/bin/mysqld_safe --defaults-file=$MYCNF_DIR 2>&1 > /dev/null &
+    }
+
+    function_stop_mysql()
+    {
+      printf "Stoping MySQL [${MYSQL_PORT}]...\n"
+      $MYSQL_LINK_DIR/bin/mysqladmin -uroot -p'$INIT_PASSWORD' -P$MYSQL_PORT -S $SOCKET_DIR shutdown
+    }
+
+    function_restart_mysql()
+    {
+      printf "Restarting MySQL...\n"
+      mysql_status=\`ps -ef|grep $MYCNF_DIR|grep -v grep|wc -l\`
+      if [ \$mysql_status -gt 0 ];then
+        function_stop_mysql
+        sleep 5
+      else
+        printf "MySQL ${MYSQL_PORT} Is Not Running...\n"
+      fi
+      function_start_mysql
+    }
+
+    function_kill_mysql()
+    {
+      mysql_status=\`ps -ef|grep $MYCNF_DIR|grep -v grep|wc -l\`
+      if [ \$mysql_status -gt 0 ];then
+        kill -9 \$(ps -ef | grep 'bin/mysqld_safe' |grep -v grep| grep ${MYSQL_PORT} | grep $MYCNF_DIR| awk '{printf \$2}')
+        kill -9 \$(ps -ef | grep 'bin/mysqld' |grep -v grep| grep ${MYSQL_PORT} | grep $MYCNF_DIR| awk '{printf \$2}')
+        printf "MySQL ${MYSQL_PORT} Is Killed...\n"
+      else
+        printf "MySQL ${MYSQL_PORT} Is Not Running...\n"
+      fi
+    }
+
+    function_status_mysql()
+    {
+      mysql_status=\`ps -ef|grep $MYCNF_DIR|grep -v grep|wc -l\`
+      if [ \$mysql_status -gt 0 ];then
+        printf "MySQL Is Running...\n"
+      else
+        printf "MySQL Is Not Running...\n"
+      fi
+    }
+
+    # 清除环境
+    function_Clear_installEnv(){
+      function_kill_mysql
+  
+      if [ -d $MYSQL_DIR/mysql$MYSQL_PORT ];then
+        rm -rf $MYSQL_DIR/mysql$MYSQL_PORT
+        printf "MySQL DataDir [$MYSQL_DIR/mysql$MYSQL_PORT] Has Been Deleted...\n"
+      fi
+
+      if [ -f $MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh ];then
+        rm -rf $MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh
+        printf "MySQL Control Bash [$MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh] Has Been Deleted...\n"
+      fi
+    }
+
+    if [ "\$1" = "start" ]; then
+      function_start_mysql
+    elif [ "\$1" = "stop" ]; then
+      function_stop_mysql
+    elif [ "\$1" = "restart" ]; then
+      function_restart_mysql
+    elif [ "\$1" = "kill" ]; then
+      function_kill_mysql
+    elif [ "\$1" = "status" ]; then
+      function_status_mysql
+    elif [ "\$1" = "clear" ]; then
+      function_Clear_installEnv
+    else
+      printf "Usage: mysql${MYSQL_PORT}_start_stop.sh {start|stop|restart|kill|clear}\n"
+    fi
+EOF
+    chmod +x $MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh
+    print_message "Note" "启停脚本已创建完成,路径:$MYSQL_LINK_DIR/bin/mysql${MYSQL_PORT}_start_stop.sh"
+
+}
+
+
+check_params
+check_install_env
+
+# 解压路径已存在则先创建启停脚本，若不存在则先安装MySQL
+if [ -d $MYSQL_LINK_DIR/bin ];then
+  # 生成启停脚本
+  start_stop_script
+  # 安装MySQL
+  install_mysql
+else
+  install_mysql
+  start_stop_script
+fi
+
+# 修改初始密码
+change_init_password
+
