@@ -7,15 +7,20 @@
 - 支持高可用部署
    - 3台  orch模式
    - 2台/3台  replication-manager 模式
-- 支持钉钉告警（加签方式）
-- 支持 mysqldump 方式备份
-- 支持xtrabackup备份
-- 支持8.0 clone 方式备份
-- 支持全量恢复
-- 支持基于时间点恢复
-- 支持基于binlog恢复
-- 支持一键升级MySQL小版本
+- 告警
+   - 支持钉钉告警（加签方式）
+- 备份
+   - 支持 mysqldump 方式备份
+   - 支持xtrabackup备份
+   - 支持8.0 clone 方式备份
+- 恢复
+   - 支持全量恢复
+   - 支持基于时间点恢复
+   - 支持基于binlog恢复
+- 升级
+   - 支持一键升级MySQL小版本
 - 支持一键将恢复备份结果或dead旧主加回集群
+
 ## 部署
 ```shell
 [root@test151 installMysql]# ./deploy_mysql.sh 
