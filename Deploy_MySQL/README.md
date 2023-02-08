@@ -22,7 +22,7 @@
 - 支持一键将恢复备份结果或dead旧主加回集群
 
 ## 部署
-> 需要将更改好配置信息后的分别传到所有需部署的服务器端
+> 需要将更改好配置信息后的分别传到所有需部署的服务器端,其他服务器端仅需修改user.conf 中的 IPADDR
 ```
 scp -P22 -r xxx/Deploy_MySQL/  root@test101:/xxx/
 scp -P22 -r xxx/Deploy_MySQL/  root@test102:/xxx/
