@@ -131,7 +131,7 @@ print_message "Note" "make vip up on new master..."
 if vip_start; then
       print_message "Note" "$vip is moved to $new_master."
       change_master_params
-      dingding_note "通知" "$vip is moved to $new_master"
+      dingding_note "数据库切换" "$vip is moved to $new_master"
       #echo "`date +'%Y-%m-%d %T'` $vip is moved to $new_master."
       #if [ $sendmail -eq 1 ]; then mail -s "$vip is moved to $new_master." "$emailaddress" < /dev/null &> /dev/null  ; fi
 

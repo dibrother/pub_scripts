@@ -137,7 +137,7 @@ if vip_status; then
         echo "`date +'%Y-%m-%d %T'` $vip is removed from ${orig_master}."
         print_message "Note" "$vip is removed from ${orig_master}."
         change_mysql_params
-        dingding_note "通知" "$vip is removed from ${orig_master}."
+        dingding_note "数据库切换" "$vip is removed from ${orig_master}."
         #if [ $sendmail -eq 1 ]; then mail -s "$vip is removed from orig_master." "$emailaddress" < /dev/null &> /dev/null  ; fi
     else
         print_message "Error" "错误信息为: Couldn't remove $vip from ${orig_master}!"
