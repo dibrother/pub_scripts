@@ -126,21 +126,20 @@ backup_environment_check(){
             exit 1
           fi
 
-	  REMOTE_DISK_USE_CMD="df -Th ${REMOTE_BACKUP_DIR}|awk '{print \$6}'|tail -1"
+	    REMOTE_DISK_USE_CMD="df -Th ${REMOTE_BACKUP_DIR}|awk '{print \$6}'|tail -1"
           # ssh 免密检查，到远程机需要配置免密
           SSH_FREE_STATUS=`ssh -p${REMOTE_PORT} ${REMOTE_HOST} -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no "date" |wc -l`
           if [ $SSH_FREE_STATUS -lt 1 ];then
             print_message "Error" "免密验证[${REMOTE_HOST}]失败,请检查免密配置!"
             exit 1
           fi
+          CHECK_REMOTE_BACKUP_DIR=`ssh -p${REMOTE_PORT} ${REMOTE_HOST} -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no "[  -d ${REMOTE_BACKUP_DIR} ] && echo 0|| echo 1"`
+	        if [ $CHECK_REMOTE_BACKUP_DIR -eq 1 ];then
+	            print_message "Error" "远程备份目录 ${REMOTE_BACKUP_DIR} 不存在,请先创建!"
+              exit 1
+	        fi
   elif [ ${REMOTE_BACKUP_SWITCH} != 0 ];then
           print_message "Error" "REMOTE_BACKUP_SWITCH 参数请传入值 0 或 1"
-          exit 1
-	fi
-
-        CHECK_REMOTE_BACKUP_DIR=`ssh -p${REMOTE_PORT} ${REMOTE_HOST} -o PreferredAuthentications=publickey -o StrictHostKeyChecking=no "[  -d ${REMOTE_BACKUP_DIR} ] && echo 0|| echo 1"`
-	if [ $CHECK_REMOTE_BACKUP_DIR -eq 1 ];then
-	  print_message "Error" "远程备份目录 ${REMOTE_BACKUP_DIR} 不存在,请先创建!"
           exit 1
 	fi
 
@@ -204,15 +203,15 @@ his_backup_clean()
         REMOTEBACK_BACKUP_FILES=`ssh -p${REMOTE_PORT} ${REMOTE_USER}@${REMOTE_HOST} "ls ${REMOTE_BACKUP_DIR}/${BACKUP_PREFIX_NAME}_*.xb|wc -l"`
         if [ ${REMOTEBACK_BACKUP_FILES} -gt 0 ];then
         ssh -p${REMOTE_PORT} ${REMOTE_USER}@${REMOTE_HOST} "find ${REMOTE_BACKUP_DIR} -type f -name ${BACKUP_PREFIX_NAME}_*.xb -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;"
-        find ${BACKUP_LOG} -type f -name '${BACKUP_PREFIX_NAME}_*.log' -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
+        find ${BACKUP_LOG} -type f -name "${BACKUP_PREFIX_NAME}_*.log" -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
         fi
       else
         print_message "Warning" "当前远程备份文件为空,无需清理."
       fi
     else
       if [ -d ${BACKUP_DIR} ];then
-        find ${BACKUP_DIR} -type f -name '${BACKUP_PREFIX_NAME}_*.xb' -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
-        find ${BACKUP_LOG} -type f -name '${BACKUP_PREFIX_NAME}_*.log' -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
+        find ${BACKUP_DIR} -type f -name "${BACKUP_PREFIX_NAME}_*.xb" -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
+        find ${BACKUP_LOG} -type f -name "${BACKUP_PREFIX_NAME}_*.log" -mtime +${BACKUP_SAVE_DAYS} -exec rm -rf {} \;
       fi
     fi
     print_message "Note" "清理历史备份清理完成"
