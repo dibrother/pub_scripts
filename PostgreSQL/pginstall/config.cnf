@@ -1,0 +1,15 @@
+# postgresql 相关目录
+pg_port=5432
+pg_dir=/app/pgsql
+pg_datadir=${pg_dir}/data
+pg_backupdir=${pg_dir}/backup
+is_ssd=0
+local_ip=192.168.60.155
+
+################## HA #########################
+## ECTD
+etcd_cluster_ip='192.168.60.155,192.168.60.156,192.168.60.157'
+etcd_cluster_port=2380
+ectd_client_port=2379
+
+vip=192.168.66.111
