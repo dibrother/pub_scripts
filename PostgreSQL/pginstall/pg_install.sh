@@ -533,13 +533,13 @@ postgresql:
   authentication:
     replication:
       username: repl
-      password: "123456"
+      password: "${replication_password}"
     superuser:
       username: postgres
-      password: "123456"
+      password: "${postgres_password}"
     rewind:
       username: postgres
-      password: "123456"
+      password: "${postgres_password}"
     basebackup:
       #max-rate: '100M'
       checkpoint: 'fast'
