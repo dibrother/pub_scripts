@@ -1,0 +1,4 @@
+1.orchestrator 报错 show slave hosts 问题处理
+  - 需要再配置文件中加入 report_host = 本机ip地址  ， report_port=3306
+
+2. SQL_MODE 修改下，改为通用，没那么多限制
