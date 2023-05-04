@@ -32,8 +32,8 @@ max_allowed_packet = 64M
 # 使用分区表需要打开次参数,默认NO,此参数会自动开启,无需设置
 # large_files_support = 1
 event_scheduler = 0
-# sql_mode=ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
-secure_file_priv = ''
+sql_mode=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+#secure_file_priv = ''
 
 #启用admin_port，连接数爆满等紧急情况下给管理员留个后门
 admin_address = '127.0.0.1'

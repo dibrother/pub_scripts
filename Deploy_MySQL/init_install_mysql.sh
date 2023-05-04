@@ -215,6 +215,9 @@ install_mysql(){
   sed -i 's#^port.*$#port = '$MYSQL_PORT'#' $MYCNF_DIR
   sed -i 's#^mysqlx_port.*$#mysqlx_port = '$MYSQLX_PORT'#' $MYCNF_DIR
   sed -i 's#^admin_port.*$#admin_port = '$MYSQL_ADMIN_PORT'#' $MYCNF_DIR
+  # 设置report
+  sed -i 's/^#report_host=.*$/report_host='${IPADDR}'/' $MYCNF_DIR
+  sed -i 's/^#report_port=.*$/report_port='${MYSQL_PORT}'/' $MYCNF_DIR
   # 替换server_id
   SERVER_ID=`echo "$IPADDR"|awk -F "." '{print $3$4}'`
   sed -i 's#^server_id.*$#server_id = '$SERVER_ID'#' $MYCNF_DIR
